@@ -1,0 +1,14 @@
+node_modules
+.npm
+npm-debug.log
+package-lock.json
+yarn.lock
+.DS_Store
+.git
+.gitignore
+public
+.cache
+.cache.*
+.sass-cache
+npm-debug.log*
+*.log
