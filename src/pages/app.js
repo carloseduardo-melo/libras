@@ -39,12 +39,14 @@ export default function App() {
         setCamState] = useState("on");
 
     const [sign, setSign] = useState(null);
+    const [currentWord, setCurrentWord] = useState("");
 
-
-    let signList = [];
-    let currentSign = 0;
-
-    let gamestate = 'started';
+    const signListRef = useRef([]);
+    const currentSignRef = useRef(0);
+    const gameStateRef = useRef('started');
+    const lastDetectedLetterRef = useRef(null);
+    const lastAppendedLetterRef = useRef(null);
+    const stableStartTimeRef = useRef(null);
 
     // let net;
 
@@ -61,7 +63,8 @@ export default function App() {
 
 
     function _signList(){
-        signList = generateSigns();
+        signListRef.current = generateSigns();
+        currentSignRef.current = 0;
     }
 
 
@@ -112,7 +115,7 @@ export default function App() {
                 // document.querySelector('.pose-data').innerHTML =JSON.stringify(estimatedGestures.poseData, null, 2);
 
 
-                if (gamestate === 'started') {
+                if (gameStateRef.current === 'started') {
                     document
                         .querySelector('#app-title')
                         .innerText = "Faça um gesto 👍 com a mão para começar";
@@ -123,44 +126,80 @@ export default function App() {
                         .gestures
                         .map((p) => p.confidence);
                     const maxConfidence = confidence.indexOf(Math.max.apply(undefined, confidence));
+                    const gestureName = estimatedGestures.gestures[maxConfidence].name;
+                    const gestureConfidence = confidence[maxConfidence];
+                    const confidenceThreshold = 0.8;
+                    const isLetter = /^[A-Z]$/.test(gestureName);
+                    const highConfidence = gestureConfidence >= confidenceThreshold;
 
-                    //setting up game state, looking for thumb emoji
-                    if (estimatedGestures.gestures[maxConfidence].name === 'thumbs_up' && gamestate !== 'played') {
+                    if (gestureName === 'thumbs_up') {
                         _signList();
-                        gamestate = 'played';
+                        currentSignRef.current = 0;
+                        gameStateRef.current = 'played';
+                        setCurrentWord("");
+                        setSign(null);
+                        lastDetectedLetterRef.current = null;
+                        lastAppendedLetterRef.current = null;
+                        stableStartTimeRef.current = null;
                         document
                             .getElementById('emojimage')
                             .classList
                             .add('play');
-                            document
+                        document
                             .querySelector('.tutor-text')
                             .innerText = "faça um gesto com a mão com base na letra mostrada abaixo";
-                    } else if (gamestate === 'played') {
+                    } else if (gameStateRef.current === 'played') {
                         document
                             .querySelector('#app-title')
                             .innerText = "";
 
-                        //looping the sign list
-                        if (currentSign === signList.length) {
+                        if (currentSignRef.current === signListRef.current.length) {
                             _signList();
-                            currentSign = 0;
+                            currentSignRef.current = 0;
+                            setSign(null);
                             return;
                         }
 
-                        //game play state
-                        // document
-                        //     .getElementById('emojimage')
-                        //     .setAttribute('src', signList[currentSign].src);
-                        if (signList[currentSign].alt === estimatedGestures.gestures[maxConfidence].name) {
-                            currentSign++;
+                        if (isLetter && highConfidence) {
+                            if (lastDetectedLetterRef.current === gestureName) {
+                                if (!stableStartTimeRef.current) {
+                                    stableStartTimeRef.current = Date.now();
+                                } else if (Date.now() - stableStartTimeRef.current >= 2000 && lastAppendedLetterRef.current !== gestureName) {
+                                    setCurrentWord((word) => word + gestureName);
+                                    lastAppendedLetterRef.current = gestureName;
+                                }
+                            } else {
+                                lastDetectedLetterRef.current = gestureName;
+                                stableStartTimeRef.current = Date.now();
+                                lastAppendedLetterRef.current = null;
+                            }
+
+                            if (signListRef.current[currentSignRef.current]?.alt === gestureName) {
+                                currentSignRef.current++;
+                            }
+
+                            setSign(gestureName);
+                        } else {
+                            setSign(null);
+                            lastDetectedLetterRef.current = null;
+                            stableStartTimeRef.current = null;
+                            lastAppendedLetterRef.current = null;
                         }
-                        setSign(estimatedGestures.gestures[maxConfidence].name);
                         
-                    } else if (gamestate === 'finished') {
+                    } else if (gameStateRef.current === 'finished') {
                         return;
                     }
+                } else {
+                    setSign(null);
+                    lastDetectedLetterRef.current = null;
+                    stableStartTimeRef.current = null;
+                    lastAppendedLetterRef.current = null;
                 }
-
+            } else {
+                setSign(null);
+                lastDetectedLetterRef.current = null;
+                stableStartTimeRef.current = null;
+                lastAppendedLetterRef.current = null;
             }
             // Draw hand lines
             const ctx = canvasRef.current.getContext("2d");
@@ -208,15 +247,27 @@ export default function App() {
                             bottom: 100,
                             textAlign: "-webkit-center",}}>
                             <Text color="white" fontSize="sm" mb={1}>Detectando Gestos</Text>
-                        <img alt="signImage"
-                            src={Signimage[sign]}
-                            style={{
-                            height: 250
-                        }}/>
+                            <img alt="signImage"
+                                src={Signimage[sign]}
+                                style={{
+                                height: 250
+                            }}/>
+                            {currentWord && (
+                                <Text color="white" fontSize="lg" mt={2} fontWeight="bold">
+                                    {currentWord}
+                                </Text>
+                            )}
                         </div>
                         )
                         : (" ")}
                 </Box>
+
+                {currentWord && (
+                    <Box textAlign="center" mt={4}>
+                        <Text color="white" fontSize="sm" mb={1}>Palavra formada</Text>
+                        <Text color="white" fontSize="2xl" fontWeight="bold">{currentWord}</Text>
+                    </Box>
+                )}
 
                 <canvas id="gesture-canvas" ref={canvasRef} style={{}}/>
 
