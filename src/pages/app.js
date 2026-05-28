@@ -29,9 +29,13 @@ import '@tensorflow/tfjs-backend-webgl';
 
 import {RiCameraFill, RiCameraOffFill} from "react-icons/ri";
 
-// Minimum absolute confidence score the winning gesture must reach.
-// Max possible per gesture = 5 dedos × (curl 1.0 + direction 0.70) = 8.5
-const MIN_GESTURE_CONFIDENCE = 7.5;
+// Confiança mínima absoluta para qualquer gesto ser aceito.
+// Max teórico por gesto ≈ 8.5 (5 dedos × curl 1.0 + direction 0.70).
+const MIN_GESTURE_CONFIDENCE = 6.5;
+
+// Confiança mínima para o 👍 limpar a palavra — exige ~90% do max do ThumbsUpGesture.
+// ThumbsUpGesture do fingerpose tem max ≈ 10.0 (curl + direction por dedo, peso 1.0 cada).
+const THUMBS_UP_CLEAR_CONFIDENCE = 9.5;
 
 // Quantos frames consecutivos o mesmo gesto deve aparecer para ser confirmado.
 const REQUIRED_CONSECUTIVE_FRAMES = 3;
@@ -112,19 +116,22 @@ export default function App() {
         return password;
     }
 
-    // Retorna o gesto confirmado se os últimos REQUIRED_CONSECUTIVE_FRAMES
-    // registros no buffer forem todos o mesmo nome não-nulo; caso contrário null.
+    // Retorna {name, confidence} se os últimos REQUIRED_CONSECUTIVE_FRAMES frames
+    // detectaram o mesmo gesto; confidence = média dos frames. Retorna null caso contrário.
     function getConfirmedGesture() {
         const history = gestureHistoryRef.current;
         if (history.length < REQUIRED_CONSECUTIVE_FRAMES) return null;
         const recent = history.slice(-REQUIRED_CONSECUTIVE_FRAMES);
         const first = recent[0];
-        if (first !== null && recent.every(g => g === first)) return first;
-        return null;
+        if (first === null) return null;
+        if (!recent.every(g => g !== null && g.name === first.name)) return null;
+        const avgConfidence = recent.reduce((sum, g) => sum + g.confidence, 0) / recent.length;
+        return {name: first.name, confidence: avgConfidence};
     }
 
-    function pushGestureHistory(gestureName) {
-        gestureHistoryRef.current.push(gestureName);
+    // Armazena {name, confidence} ou null no buffer de histórico.
+    function pushGestureHistory(gesture) {
+        gestureHistoryRef.current.push(gesture);
         if (gestureHistoryRef.current.length > REQUIRED_CONSECUTIVE_FRAMES) {
             gestureHistoryRef.current.shift();
         }
@@ -177,14 +184,15 @@ export default function App() {
                     const topGesture = estimatedGestures.gestures[maxIdx];
 
                     if (topGesture.confidence >= MIN_GESTURE_CONFIDENCE) {
-                        pushGestureHistory(topGesture.name);
+                        pushGestureHistory({name: topGesture.name, confidence: topGesture.confidence});
                     } else {
                         pushGestureHistory(null);
                     }
 
                     const confirmed = getConfirmedGesture();
+                    // confirmed = {name, confidence} ou null
 
-                    if (confirmed === 'thumbs_up' && gamestate !== 'played') {
+                    if (confirmed?.name === 'thumbs_up' && gamestate !== 'played') {
                         _signList();
                         gamestate = 'played';
                         setGameStarted(true);
@@ -200,27 +208,29 @@ export default function App() {
                             .querySelector('#app-title')
                             .innerText = "";
 
-                        if (confirmed === 'thumbs_up') {
-                            setWord('');
-                            resetHold();
-                            setSign(null);
+                        if (confirmed?.name === 'thumbs_up') {
+                            // Exige ~90% de confiança média para evitar limpeza acidental.
+                            if (confirmed.confidence >= THUMBS_UP_CLEAR_CONFIDENCE) {
+                                setWord('');
+                                resetHold();
+                                setSign(null);
+                            }
                         } else {
-                            // Bug fix: removido o `return` prematuro que pulava drawHand.
                             if (currentSign === signList.length) {
                                 _signList();
                                 currentSign = 0;
                             }
 
                             if (confirmed !== null) {
-                                setSign(confirmed);
+                                setSign(confirmed.name);
 
-                                if (signList[currentSign] && signList[currentSign].alt === confirmed) {
+                                if (signList[currentSign] && signList[currentSign].alt === confirmed.name) {
                                     currentSign++;
                                 }
 
                                 // Hold para formação de palavra
-                                if (holdSignRef.current !== confirmed) {
-                                    holdSignRef.current = confirmed;
+                                if (holdSignRef.current !== confirmed.name) {
+                                    holdSignRef.current = confirmed.name;
                                     holdStartRef.current = Date.now();
                                     letterAddedRef.current = false;
                                     setHoldProgress(0);
@@ -229,7 +239,7 @@ export default function App() {
                                     const progress = Math.min(100, (elapsed / WORD_HOLD_MS) * 100);
                                     setHoldProgress(progress);
                                     if (elapsed >= WORD_HOLD_MS) {
-                                        setWord(prev => prev + confirmed);
+                                        setWord(prev => prev + confirmed.name);
                                         letterAddedRef.current = true;
                                     }
                                 }
