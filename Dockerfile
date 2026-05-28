@@ -1,24 +1,22 @@
-# Use Node 18 for compatibility with Gatsby v2 and OpenSSL
-FROM node:18-bullseye AS builder
+# ── Build ────────────────────────────────────────────────────────────────────
+FROM node:18-bullseye-slim AS builder
 
 WORKDIR /app
 
-# Copy package files and install dependencies first for better build caching
-COPY package.json package-lock.json* ./
-RUN npm install
+# Instala dependências primeiro para aproveitar o cache de camadas do Docker.
+# npm ci é mais rápido e garante instalação idêntica ao package-lock.json.
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Copy the project and build the Gatsby site
 COPY . ./
 RUN npm run build
 
-# Production image
-FROM node:18-bullseye AS runner
-WORKDIR /app
-ENV NODE_ENV=production
+# ── Runtime ──────────────────────────────────────────────────────────────────
+# nginx:alpine = ~5 MB de imagem base, ~10 MB de RAM em execução.
+# Não precisa de Node nem de node_modules para servir arquivos estáticos.
+FROM nginx:alpine AS runner
 
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/public ./public
+COPY --from=builder /app/public /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 8000
-CMD ["npx", "gatsby", "serve", "-H", "0.0.0.0", "-p", "8000"]
+EXPOSE 80

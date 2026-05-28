@@ -1,7 +1,5 @@
 node_modules
 .npm
-npm-debug.log
-package-lock.json
 yarn.lock
 .DS_Store
 .git
@@ -12,3 +10,5 @@ public
 .sass-cache
 npm-debug.log*
 *.log
+CLAUDE.md
+README.md
